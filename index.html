@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Review Tool Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        :root { --primary: #3498db; --success: #2ed573; --warning: #ffa502; --danger: #ff4757; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 10px; }
+        .container { max-width: 1000px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+        .upload-area { border: 2px dashed #444; padding: 30px; border-radius: 12px; margin-bottom: 20px; cursor: pointer; transition: 0.3s; }
+        .upload-area:hover { border-color: var(--primary); background: #252525; }
+        video { width: 100%; border-radius: 12px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 20px 0; }
+        button { padding: 15px; font-size: 18px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; color: white; }
+        .btn-bad { background: var(--danger); }
+        .btn-mark { background: var(--warning); }
+        .btn-good { background: var(--success); }
+        button:active { transform: scale(0.95); }
+        .charts-section { background: white; padding: 15px; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+        .chart-wrapper { flex: 1; min-width: 300px; }
+        #logBox { background: #000; color: #00ff00; padding: 10px; border-radius: 8px; font-family: monospace; height: 60px; overflow-y: auto; font-size: 12px; margin: 10px 0; text-align: left; }
+        .export-btn { background: var(--primary); width: 100%; margin-top: 20px; padding: 15px; font-size: 18px; }
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="upload-area" onclick="document.getElementById('videoInput').click()">
+        <span id="uploadHint">📂 點擊這裡選擇要分析的影片</span>
+        <input type="file" id="videoInput" accept="video/*">
+    </div>
+
+    <video id="myVideo" controls></video>
+
+    <div id="logBox">>> 準備就緒...</div>
+
+    <div class="btn-group">
+        <button class="btn-bad" onclick="recordAction(-1, '倒讚')">👎 1</button>
+        <button class="btn-mark" onclick="recordAction(0, '標記')">📌 2</button>
+        <button class="btn-good" onclick="recordAction(1, '讚')">👍 3</button>
+    </div>
+
+    <div class="charts-section">
+        <div class="chart-wrapper"><canvas id="lineChart"></canvas></div>
+        <div class="chart-wrapper" style="max-width: 300px; margin: auto;"><canvas id="pieChart"></canvas></div>
+    </div>
+
+    <button class="export-btn" onclick="exportData()">💾 下載分析報告 (CSV)</button>
+</div>
+
+<script>
+    Chart.register(ChartDataLabels);
+    const video = document.getElementById('myVideo');
+    const videoInput = document.getElementById('videoInput');
+    let reviewData = [];
+    let counts = { '讚': 0, '標記': 0, '倒讚': 0 };
+
+    videoInput.onchange = function() {
+        const file = this.files[0];
+        if (file) {
+            document.getElementById('uploadHint').innerText = "當前影片：" + file.name;
+            video.src = URL.createObjectURL(file);
+            video.play();
+            reviewData = [];
+            counts = { '讚': 0, '標記': 0, '倒讚': 0 };
+            lineChart.data.labels = [];
+            lineChart.data.datasets[0].data = [];
+            lineChart.update();
+        }
+    };
+
+    function formatTime(s) {
+        return `${Math.floor(s/60).toString().padStart(2,'0')}:${Math.floor(s%60).toString().padStart(2,'0')}`;
+    }
+
+    const ctxLine = document.getElementById('lineChart').getContext('2d');
+    const lineChart = new Chart(ctxLine, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: '情緒波動', data: [], borderColor: '#3498db', tension: 0.4, fill: true, backgroundColor: 'rgba(52,152,219,0.1)' }] },
+        options: { 
+            scales: { y: { min: -1.1, max: 1.1, ticks: { callback: v => v===1?'讚':v===0?'標記':v===-1?'倒讚':'' } } },
+            plugins: { datalabels: { display: false } }
+        }
+    });
+
+    const ctxPie = document.getElementById('pieChart').getContext('2d');
+    const pieChart = new Chart(ctxPie, {
+        type: 'pie',
+        data: { labels: ['讚', '標記', '倒讚'], datasets: [{ data: [0,0,0], backgroundColor: ['#2ed573','#ffa502','#ff4757'] }] },
+        options: {
+            plugins: {
+                datalabels: {
+                    color: '#fff', font: { weight: 'bold' },
+                    formatter: (v, ctx) => {
+                        let sum = 0;
+                        ctx.chart.data.datasets[0].data.map(d => sum += d);
+                        return sum > 0 ? `${((v*100)/sum).toFixed(0)}%` : "";
+                    }
+                }
+            }
+        }
+    });
+
+    function recordAction(score, label) {
+        if (!video.src) return alert("請先選影片");
+        const time = formatTime(video.currentTime);
+        reviewData.push({ time, score, label });
+        counts[label]++;
+        
+        lineChart.data.labels.push(time);
+        lineChart.data.datasets[0].data.push(score);
+        lineChart.update();
+        
+        pieChart.data.datasets[0].data = [counts['讚'], counts['標記'], counts['倒讚']];
+        pieChart.update();
+
+        document.getElementById('logBox').innerHTML = `[${time}] ${label}<br>` + document.getElementById('logBox').innerHTML;
+    }
+
+    window.onkeydown = (e) => {
+        if(e.key === '1') recordAction(-1, '倒讚');
+        if(e.key === '2') recordAction(0, '標記');
+        if(e.key === '3') recordAction(1, '讚');
+    };
+
+    function exportData() {
+        let csv = "\uFEFF時間,評價,分數\n";
+        reviewData.forEach(d => csv += `${d.time},${d.label},${d.score}\n`);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "report.csv";
+        a.click();
+    }
+</script>
+</body>
+</html>
