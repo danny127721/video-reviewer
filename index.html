@@ -10,7 +10,7 @@
         :root { --primary: #3498db; --success: #2ed573; --warning: #ffa502; --danger: #ff4757; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 10px; }
         .container { max-width: 1000px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-        .upload-area { border: 2px dashed #444; padding: 30px; border-radius: 12px; margin-bottom: 20px; cursor: pointer; transition: 0.3s; }
+        .upload-area { border: 2px dashed #444; padding: 30px; border-radius: 12px; margin-bottom: 20px; cursor: pointer; transition: 0.3s; text-align: center; }
         .upload-area:hover { border-color: var(--primary); background: #252525; }
         video { width: 100%; border-radius: 12px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
         .btn-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 20px 0; }
@@ -45,8 +45,12 @@
     </div>
 
     <div class="charts-section">
-        <div class="chart-wrapper"><canvas id="lineChart"></canvas></div>
-        <div class="chart-wrapper" style="max-width: 300px; margin: auto;"><canvas id="pieChart"></canvas></div>
+        <div class="chart-wrapper">
+            <canvas id="lineChart"></canvas>
+        </div>
+        <div class="chart-wrapper" style="max-width: 300px; margin: auto;">
+            <canvas id="pieChart"></canvas>
+        </div>
     </div>
 
     <button class="export-btn" onclick="exportData()">💾 下載分析報告 (CSV)</button>
@@ -65,36 +69,94 @@
             document.getElementById('uploadHint').innerText = "當前影片：" + file.name;
             video.src = URL.createObjectURL(file);
             video.play();
-            reviewData = [];
-            counts = { '讚': 0, '標記': 0, '倒讚': 0 };
-            lineChart.data.labels = [];
-            lineChart.data.datasets[0].data = [];
-            lineChart.update();
+            resetApp();
         }
     };
+
+    function resetApp() {
+        reviewData = [];
+        counts = { '讚': 0, '標記': 0, '倒讚': 0 };
+        lineChart.data.labels = [];
+        lineChart.data.datasets[0].data = [];
+        lineChart.update();
+        pieChart.data.datasets[0].data = [0,0,0];
+        pieChart.update();
+    }
 
     function formatTime(s) {
         return `${Math.floor(s/60).toString().padStart(2,'0')}:${Math.floor(s%60).toString().padStart(2,'0')}`;
     }
 
+    // --- 情緒波動圖 (Line Chart) ---
     const ctxLine = document.getElementById('lineChart').getContext('2d');
     const lineChart = new Chart(ctxLine, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: '情緒波動', data: [], borderColor: '#3498db', tension: 0.4, fill: true, backgroundColor: 'rgba(52,152,219,0.1)' }] },
+        data: {
+            labels: [],
+            datasets: [{
+                label: '情緒波動',
+                data: [],
+                borderColor: '#3498db',
+                borderWidth: 2,
+                tension: 0.3,
+                fill: false,
+                // 動態設定點的顏色
+                pointBackgroundColor: (context) => {
+                    const value = context.raw;
+                    if (value === 1) return '#2ed573'; // 讚 - 綠色
+                    if (value === 0) return '#ffa502'; // 標記 - 橘色
+                    if (value === -1) return '#ff4757'; // 倒讚 - 紅色
+                    return '#fff';
+                },
+                pointBorderColor: '#fff',
+                pointRadius: 6,
+                pointHoverRadius: 8
+            }]
+        },
         options: { 
-            scales: { y: { min: -1.1, max: 1.1, ticks: { callback: v => v===1?'讚':v===0?'標記':v===-1?'倒讚':'' } } },
-            plugins: { datalabels: { display: false } }
+            scales: {
+                y: {
+                    min: -1.2,
+                    max: 1.2,
+                    ticks: {
+                        stepSize: 1,
+                        // 將數字替換為文字標籤
+                        callback: function(value) {
+                            if (value === 1) return '讚 👍';
+                            if (value === 0) return '標記 📌';
+                            if (value === -1) return '倒讚 👎';
+                            return '';
+                        },
+                        color: '#333',
+                        font: { weight: 'bold' }
+                    },
+                    grid: { color: '#eee' }
+                },
+                x: { grid: { display: false }, ticks: { color: '#333' } }
+            },
+            plugins: {
+                legend: { display: false },
+                datalabels: { display: false }
+            }
         }
     });
 
+    // --- 比例圓餅圖 (Pie Chart) ---
     const ctxPie = document.getElementById('pieChart').getContext('2d');
     const pieChart = new Chart(ctxPie, {
         type: 'pie',
-        data: { labels: ['讚', '標記', '倒讚'], datasets: [{ data: [0,0,0], backgroundColor: ['#2ed573','#ffa502','#ff4757'] }] },
+        data: {
+            labels: ['讚', '標記', '倒讚'],
+            datasets: [{
+                data: [0, 0, 0],
+                backgroundColor: ['#2ed573', '#ffa502', '#ff4757']
+            }]
+        },
         options: {
             plugins: {
                 datalabels: {
-                    color: '#fff', font: { weight: 'bold' },
+                    color: '#fff',
+                    font: { weight: 'bold', size: 12 },
                     formatter: (v, ctx) => {
                         let sum = 0;
                         ctx.chart.data.datasets[0].data.map(d => sum += d);
@@ -128,15 +190,15 @@
     };
 
     function exportData() {
+        if (reviewData.length === 0) return alert("尚未有數據");
         let csv = "\uFEFF時間,評價,分數\n";
         reviewData.forEach(d => csv += `${d.time},${d.label},${d.score}\n`);
         const blob = new Blob([csv], { type: 'text/csv' });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "report.csv";
+        a.download = `分析報告_${new Date().toLocaleTimeString()}.csv`;
         a.click();
     }
 </script>
 </body>
 </html>
-    
